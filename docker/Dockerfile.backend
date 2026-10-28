@@ -1,0 +1,46 @@
+# Multi-stage production Dockerfile for Backend
+FROM node:22-alpine AS builder
+
+WORKDIR /app
+
+# Copy root and backend package definitions
+COPY package*.json ./
+COPY prisma ./prisma/
+
+RUN npm ci
+
+# Copy source code and build
+COPY . .
+RUN npm run prisma:generate
+RUN npm run build
+
+# ==========================================
+# Production Runtime Stage
+# ==========================================
+FROM node:22-alpine AS runner
+
+WORKDIR /app
+ENV NODE_ENV=production
+
+# Install dumb-init for proper signal forwarding and PID 1 init
+RUN apk add --no-cache dumb-init
+
+# Copy package definitions and install production only dependencies
+COPY package*.json ./
+COPY prisma ./prisma/
+RUN npm ci --only=production
+
+# Copy generated Prisma client and built dist from builder
+COPY --from=builder /app/node_modules/@prisma/client ./node_modules/@prisma/client
+COPY --from=builder /app/dist ./dist
+
+# Create non-root user for principle of least privilege
+USER node
+
+EXPOSE 5000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:5000/health || exit 1
+
+ENTRYPOINT ["/usr/bin/dumb-init", "--"]
+CMD ["node", "dist/index.js"]

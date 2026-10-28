@@ -1,0 +1,76 @@
+version: '3.8'
+
+services:
+  # ==========================================
+  # PostgreSQL Database with Persistent Volume
+  # ==========================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: ambulance_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-emergency_secure_pg_2026}
+      POSTGRES_DB: ${POSTGRES_DB:-ambulance_db}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ambulance_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - emergency_network
+
+  # ==========================================
+  # Emergency Coordination Backend Service
+  # ==========================================
+  backend:
+    build:
+      context: ./backend
+      dockerfile: ../docker/Dockerfile.backend
+    container_name: ambulance_backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-emergency_secure_pg_2026}@postgres:5432/${POSTGRES_DB:-ambulance_db}?schema=public
+      JWT_SECRET: ${JWT_SECRET:-super-secret-production-grade-emergency-jwt-key-2026-secure}
+      JWT_EXPIRES_IN: 8h
+      CORS_ORIGIN: http://localhost:80,http://localhost:5173
+      OSRM_ROUTING_URL: ${OSRM_ROUTING_URL:-https://router.project-osrm.org}
+      ENABLE_RATE_LIMITING: "true"
+      ADMIN_SETUP_TOKEN: ${ADMIN_SETUP_TOKEN:-emergency-admin-initial-setup-token-secure-2026}
+    ports:
+      - "5000:5000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - emergency_network
+
+  # ==========================================
+  # Frontend Progressive Web Application (Nginx)
+  # ==========================================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: ../docker/Dockerfile.frontend
+    container_name: ambulance_frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - emergency_network
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  emergency_network:
+    driver: bridge

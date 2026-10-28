@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <rect width="64" height="64" rx="14" fill="#0a0f1d"/>
+  <rect x="2" y="2" width="60" height="60" rx="12" fill="none" stroke="#06b6d4" stroke-width="2"/>
+  <!-- Emergency Cross / Star of Life Motif -->
+  <path d="M 28 14 H 36 V 26 H 48 V 34 H 36 V 46 H 28 V 34 H 16 V 26 H 28 Z" fill="#ea580c"/>
+  <circle cx="32" cy="30" r="4" fill="#22d3ee"/>
+  <!-- Pulse Line -->
+  <path d="M 12 52 L 24 52 L 28 47 L 34 57 L 38 49 L 42 52 L 52 52" fill="none" stroke="#22d3ee" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

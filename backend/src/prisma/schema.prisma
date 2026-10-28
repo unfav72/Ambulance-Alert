@@ -1,0 +1,361 @@
+// Prisma schema for Concurrent Ambulance Allocation and Hospital Coordination System
+// Enterprise normalized schema with row-level integrity, audit trails, and concurrency support
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  PATIENT_REQUESTER
+  AMBULANCE_CREW
+  HOSPITAL_STAFF
+  DISPATCHER
+  SYSTEM_ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  PENDING_APPROVAL
+  SUSPENDED
+  REVOKED
+}
+
+enum AmbulanceType {
+  BASIC
+  ADVANCED
+  ICU
+  NEONATAL
+}
+
+enum AmbulanceStatus {
+  AVAILABLE
+  DISPATCHED
+  EN_ROUTE_SCENE
+  AT_SCENE
+  EN_ROUTE_HOSPITAL
+  AT_HOSPITAL
+  MAINTENANCE
+  OFFLINE
+}
+
+enum TriagePriority {
+  CRITICAL_P1 // Immediate life threat: cardiac arrest, severe trauma, respiratory arrest
+  URGENT_P2   // Potentially life-threatening: stroke, chest pain, major fracture
+  STANDARD_P3 // Serious, non-immediately fatal: moderate asthma, fracture
+  NON_URGENT_P4 // Non-critical: minor injuries, transport requirement
+}
+
+enum CaseStatus {
+  PENDING
+  ALLOCATING
+  ASSIGNED
+  CREW_EN_ROUTE
+  AT_SCENE
+  TRANSPORTING
+  ARRIVED_HOSPITAL
+  HANDED_OVER
+  CANCELLED
+  ESCALATED
+}
+
+enum HospitalCoordinationStatus {
+  RECOMMENDED
+  CONTACTED
+  ACCEPTED
+  DECLINED
+  REDIRECTED
+}
+
+enum ShiftStatus {
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+model User {
+  id                String       @id @default(uuid())
+  email             String       @unique
+  phone             String?      @unique
+  passwordHash      String
+  fullName          String
+  role              UserRole     @default(PATIENT_REQUESTER)
+  status            UserStatus   @default(ACTIVE)
+  organizationId    String?
+  organization      Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  isEmailVerified   Boolean      @default(false)
+  mfaSecret         String?
+  mfaEnabled        Boolean      @default(false)
+  failedLoginAttempts Int        @default(0)
+  lockoutUntil      DateTime?
+  lastLoginAt       DateTime?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  // Relations
+  emergencyCases      EmergencyCase[]       @relation("RequesterCases")
+  crewAssignments     CrewAssignment[]
+  auditLogs           AuditLog[]
+  invitationsCreated  UserInvitation[]      @relation("InvitedByUser")
+  securityAlerts      SecurityAlert[]
+  capacityUpdates     HospitalCapacity[]    @relation("CapacityUpdater")
+  hospitalResponses   HospitalCoordination[] @relation("RespondedByUser")
+
+  @@index([role, status])
+  @@index([organizationId])
+}
+
+model UserInvitation {
+  id              String      @id @default(uuid())
+  email           String
+  role            UserRole
+  organizationId  String?
+  organization    Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  tokenHash       String      @unique
+  invitedById     String
+  invitedBy       User        @relation("InvitedByUser", fields: [invitedById], references: [id], onDelete: Cascade)
+  expiresAt       DateTime
+  acceptedAt      DateTime?
+  revokedAt       DateTime?
+  createdAt       DateTime    @default(now())
+
+  @@index([email])
+  @@index([tokenHash])
+}
+
+model Organization {
+  id              String      @id @default(uuid())
+  name            String
+  type            String      // HOSPITAL | DISPATCH_AGENCY | MUNICIPAL
+  address         String
+  latitude        Float
+  longitude       Float
+  contactPhone    String
+  traumaLevel     Int?        // 1 (Highest), 2, 3, 4
+  verified        Boolean     @default(false)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  users           User[]
+  invitations     UserInvitation[]
+  hospitalCapacity HospitalCapacity?
+  coordinations   HospitalCoordination[]
+  handovers       PatientHandover[]
+
+  @@index([type, verified])
+  @@index([latitude, longitude])
+}
+
+model HospitalCapacity {
+  id                 String       @id @default(uuid())
+  organizationId     String       @unique
+  organization       Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  totalBeds          Int          @default(0)
+  availableBeds      Int          @default(0)
+  icuBedsTotal       Int          @default(0)
+  icuBedsAvailable   Int          @default(0)
+  oxygenAvailable    Boolean      @default(true)
+  ventilatorAvailable Boolean     @default(true)
+  lastUpdatedById    String
+  lastUpdatedBy      User         @relation("CapacityUpdater", fields: [lastUpdatedById], references: [id])
+  updatedAt          DateTime     @updatedAt
+
+  @@index([organizationId])
+}
+
+model Ambulance {
+  id                 String           @id @default(uuid())
+  registrationNumber String           @unique
+  callSign           String           @unique
+  type               AmbulanceType    @default(BASIC)
+  equipmentList      String[]         @default([])
+  status             AmbulanceStatus  @default(AVAILABLE)
+  currentLatitude    Float?
+  currentLongitude   Float?
+  lastGpsUpdate      DateTime?
+  isTrackingActive   Boolean          @default(false)
+  version            Int              @default(1) // Optimistic locking counter
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  crewAssignments    CrewAssignment[]
+  caseAllocations    CaseAllocation[]
+  trackingSessions   TrackingSession[]
+  locationHistories  LocationHistory[]
+
+  @@index([status, type])
+  @@index([currentLatitude, currentLongitude])
+}
+
+model CrewAssignment {
+  id            String       @id @default(uuid())
+  ambulanceId   String
+  ambulance     Ambulance    @relation(fields: [ambulanceId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roleOnCrew    String       // "PARAMEDIC", "DRIVER", "EMT"
+  shiftStart    DateTime     @default(now())
+  shiftEnd      DateTime?
+  status        ShiftStatus  @default(ACTIVE)
+  createdAt     DateTime     @default(now())
+
+  trackingSessions TrackingSession[]
+
+  @@index([ambulanceId, status])
+  @@index([userId, status])
+}
+
+model EmergencyCase {
+  id               String          @id @default(uuid())
+  caseNumber       String          @unique
+  requesterName    String
+  requesterPhone   String
+  requesterUserId  String?
+  requesterUser    User?           @relation("RequesterCases", fields: [requesterUserId], references: [id], onDelete: SetNull)
+  pickupLatitude   Float
+  pickupLongitude  Float
+  pickupAddress    String
+  triagePriority   TriagePriority  @default(URGENT_P2)
+  chiefComplaint   String
+  patientAge       Int?
+  patientGender    String?
+  status           CaseStatus      @default(PENDING)
+  notes            String?
+  idempotencyKey   String?         @unique
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  allocations      CaseAllocation[]
+  coordinations    HospitalCoordination[]
+  handover         PatientHandover?
+
+  @@index([status, triagePriority])
+  @@index([pickupLatitude, pickupLongitude])
+  @@index([createdAt])
+}
+
+model CaseAllocation {
+  id               String         @id @default(uuid())
+  caseId           String
+  emergencyCase    EmergencyCase  @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  ambulanceId      String
+  ambulance        Ambulance      @relation(fields: [ambulanceId], references: [id], onDelete: Cascade)
+  assignedAt       DateTime       @default(now())
+  acknowledgedAt   DateTime?
+  arrivedSceneAt   DateTime?
+  departedSceneAt  DateTime?
+  arrivedHospitalAt DateTime?
+  handoverAt       DateTime?
+  completedAt      DateTime?
+  status           String         @default("ASSIGNED") // ASSIGNED, EN_ROUTE, AT_SCENE, TRANSPORTING, COMPLETED, CANCELLED
+  failureReason    String?
+  createdAt        DateTime       @default(now())
+
+  @@index([caseId])
+  @@index([ambulanceId])
+}
+
+model HospitalCoordination {
+  id               String                     @id @default(uuid())
+  caseId           String
+  emergencyCase    EmergencyCase              @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  hospitalId       String
+  hospital         Organization               @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
+  status           HospitalCoordinationStatus @default(RECOMMENDED)
+  bedsReserved     Int                        @default(0)
+  etaSeconds       Int?
+  distanceMeters   Int?
+  responseReason   String?
+  respondedById    String?
+  respondedBy      User?                      @relation("RespondedByUser", fields: [respondedById], references: [id], onDelete: SetNull)
+  respondedAt      DateTime?
+  createdAt        DateTime                   @default(now())
+  updatedAt        DateTime                   @updatedAt
+
+  @@unique([caseId, hospitalId])
+  @@index([caseId])
+  @@index([hospitalId, status])
+}
+
+model TrackingSession {
+  id               String          @id @default(uuid())
+  ambulanceId      String
+  ambulance        Ambulance       @relation(fields: [ambulanceId], references: [id], onDelete: Cascade)
+  crewAssignmentId String?
+  crewAssignment   CrewAssignment? @relation(fields: [crewAssignmentId], references: [id], onDelete: SetNull)
+  deviceId         String
+  startedAt        DateTime        @default(now())
+  endedAt          DateTime?
+  status           String          @default("ACTIVE") // ACTIVE, CLOSED
+
+  locations        LocationHistory[]
+
+  @@index([ambulanceId, status])
+}
+
+model LocationHistory {
+  id                String          @id @default(uuid())
+  trackingSessionId String
+  trackingSession   TrackingSession @relation(fields: [trackingSessionId], references: [id], onDelete: Cascade)
+  ambulanceId       String
+  ambulance         Ambulance       @relation(fields: [ambulanceId], references: [id], onDelete: Cascade)
+  latitude          Float
+  longitude         Float
+  accuracyMeters    Float
+  speed             Float?
+  heading           Float?
+  deviceTimestamp   DateTime
+  serverReceivedAt  DateTime        @default(now())
+
+  @@index([ambulanceId, deviceTimestamp])
+  @@index([trackingSessionId])
+}
+
+model PatientHandover {
+  id                 String        @id @default(uuid())
+  caseId             String        @unique
+  emergencyCase      EmergencyCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  hospitalId         String
+  hospital           Organization  @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
+  receivingDoctorName String
+  receivingNurseName  String?
+  vitalsSummary      String
+  handoverNotes      String
+  completedAt        DateTime      @default(now())
+
+  @@index([hospitalId])
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action      String   // e.g. "AUTH_LOGIN", "EMERGENCY_CREATE", "AMBULANCE_ALLOCATE", "GPS_UPDATE"
+  entityType  String   // e.g. "EmergencyCase", "Ambulance", "User"
+  entityId    String?
+  ipAddress   String?
+  userAgent   String?
+  metadata    Json?
+  timestamp   DateTime @default(now())
+
+  @@index([userId])
+  @@index([action])
+  @@index([entityType, entityId])
+  @@index([timestamp])
+}
+
+model SecurityAlert {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String   // "SUSPICIOUS_LOGIN", "ACCOUNT_LOCKED", "UNAUTHORIZED_ACCESS"
+  message   String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, read])
+}

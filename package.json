@@ -1,0 +1,31 @@
+{
+  "name": "ambulance-akka-system",
+  "version": "1.0.0",
+  "description": "Production-Grade Concurrent Ambulance Allocation and Hospital Coordination System PWA",
+  "private": true,
+  "scripts": {
+    "install:all": "npm --prefix backend install && npm --prefix frontend install",
+    "dev": "concurrently -n \"BACKEND,FRONTEND\" -c \"blue,cyan\" \"npm --prefix backend run dev\" \"npm --prefix frontend run dev\"",
+    "dev:backend": "npm --prefix backend run dev",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "build": "npm --prefix backend run build && npm --prefix frontend run build",
+    "test": "npm --prefix backend run test",
+    "test:concurrency": "npm --prefix backend run test:concurrency",
+    "prisma:generate": "npm --prefix backend run prisma:generate",
+    "prisma:migrate": "npm --prefix backend run prisma:migrate",
+    "seed:admin": "npm --prefix backend run seed:admin"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  },
+  "keywords": [
+    "emergency-response",
+    "ambulance-allocation",
+    "hospital-coordination",
+    "pwa",
+    "concurrency-control",
+    "gps-tracking"
+  ],
+  "author": "Emergency Operations Engineering Team",
+  "license": "UNLICENSED"
+}

@@ -1,0 +1,17 @@
+{
+  "name": "Concurrent Ambulance Allocation & Hospital Coordination System",
+  "short_name": "AmbulanceOps",
+  "description": "Production-grade emergency dispatch, live GPS telemetry, and hospital coordination PWA",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0f1d",
+  "theme_color": "#0a0f1d",
+  "icons": [
+    {
+      "src": "/icons/ambulance.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
