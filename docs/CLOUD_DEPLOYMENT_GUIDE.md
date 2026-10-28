@@ -45,21 +45,27 @@ This guide covers deployment to production environments:
 3. Ensure automated daily backups and Point-In-Time Recovery (PITR) are enabled.
 
 ### Step 2.2: Deploy Backend Web Service
-1. Connect your Git repository to **Render** or **Railway**.
-2. Set Environment: **Docker** (using `docker/Dockerfile.backend`).
+1. Connect your Git repository (`https://github.com/unfav72/Ambulance-Alert.git`) to **Render** or **Railway**.
+2. **Build Configuration**:
+   - **Build Context / Root Directory**: `.` (repository root)
+   - **Dockerfile Path**: `docker/Dockerfile.backend`
+   - *(Note: If you choose Root Directory: `backend`, select `Dockerfile` inside the backend directory)*
 3. Set Environment Variables:
    - `NODE_ENV`: `production`
    - `PORT`: `5000`
-   - `DATABASE_URL`: `postgresql://app_user:...@db-host:5432/ambulance_prod?sslmode=require`
+   - `DATABASE_URL`: `postgresql://app_user:...@db-host:5432/ambulance_prod?sslmode=require&connect_timeout=30`
    - `JWT_SECRET`: *(Generate 64-character random string via `openssl rand -hex 32`)*
    - `JWT_EXPIRES_IN`: `8h`
    - `CORS_ORIGIN`: `https://ambulance.yourdomain.com`
-   - `OSRM_ROUTING_URL`: `https://router.project-osrm.org` (or your private OSRM server)
+   - `OSRM_ROUTING_URL`: `https://router.project-osrm.org`
    - `ENABLE_RATE_LIMITING`: `true`
    - `ADMIN_SETUP_TOKEN`: *(Generate secure 32-char token)*
+   - `BREVO_API_KEY`: `xkeysib-...`
+   - `BREVO_SENDER_EMAIL`: `vanakkam727@gmail.com`
+   - `BREVO_SENDER_NAME`: `"AmbulanceOps Emergency Dispatch"`
 
 ### Step 2.3: Deploy Frontend PWA Static Service
-1. Create a Static Site or Web Service using `docker/Dockerfile.frontend`.
+1. Create a Web Service using `docker/Dockerfile.frontend` with Root Directory: `.`
 2. Configure custom domain with automatic SSL (e.g., `https://ambulance.yourdomain.com`).
 3. Set proxy rule: forward `/api/` and `/socket.io/` to your deployed backend URL.
 

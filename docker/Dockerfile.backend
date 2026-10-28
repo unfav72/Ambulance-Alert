@@ -1,16 +1,16 @@
-# Multi-stage production Dockerfile for Backend
+# Multi-stage production Dockerfile for Backend (Root Context)
 FROM node:22-alpine AS builder
 
 WORKDIR /app
 
-# Copy root and backend package definitions
-COPY package*.json ./
-COPY prisma ./prisma/
+# Copy backend package definitions and prisma schema
+COPY backend/package*.json ./
+COPY backend/prisma ./prisma/
 
 RUN npm ci
 
-# Copy source code and build
-COPY . .
+# Copy backend source code and build
+COPY backend/ ./
 RUN npm run prisma:generate
 RUN npm run build
 
@@ -26,8 +26,8 @@ ENV NODE_ENV=production
 RUN apk add --no-cache dumb-init
 
 # Copy package definitions and install production only dependencies
-COPY package*.json ./
-COPY prisma ./prisma/
+COPY backend/package*.json ./
+COPY backend/prisma ./prisma/
 RUN npm ci --only=production
 
 # Copy generated Prisma client and built dist from builder

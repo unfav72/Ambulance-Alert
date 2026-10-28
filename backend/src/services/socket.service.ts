@@ -14,9 +14,13 @@ class SocketService {
   private io: Server | null = null;
 
   public initialize(httpServer: HttpServer) {
+    const socketCorsOrigin = env.CORS_ORIGIN === '*'
+      ? true
+      : (env.CORS_ORIGIN.includes(',') ? env.CORS_ORIGIN.split(',').map((o) => o.trim()) : env.CORS_ORIGIN);
+
     this.io = new Server(httpServer, {
       cors: {
-        origin: env.CORS_ORIGIN,
+        origin: socketCorsOrigin,
         methods: ['GET', 'POST'],
         credentials: true,
       },

@@ -37,7 +37,8 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   useEffect(() => {
     // Connect to backend Socket.IO endpoint
-    const newSocket = io('/', {
+    const socketEndpoint = (import.meta.env.VITE_SOCKET_URL as string) || (import.meta.env.VITE_API_URL as string) || '/';
+    const newSocket = io(socketEndpoint, {
       auth: { token },
       autoConnect: true,
       reconnectionAttempts: 10,
