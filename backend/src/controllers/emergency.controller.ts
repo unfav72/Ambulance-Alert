@@ -449,24 +449,79 @@ export class EmergencyController {
       const { id } = req.params;
       const { hospitalId, receivingDoctorName, receivingNurseName, vitalsSummary, handoverNotes } = req.body;
 
-      const handover = await prisma.$transaction(async (tx) => {
-        const h = await tx.patientHandover.create({
-          data: {
-            caseId: id,
-            hospitalId,
-            receivingDoctorName,
-            receivingNurseName: receivingNurseName || null,
-            vitalsSummary,
-            handoverNotes,
-          },
-        });
+      // Verify or resolve receiving hospital organization
+      let resolvedHospitalId = hospitalId;
+      const existingHospital = await prisma.organization.findUnique({
+        where: { id: hospitalId },
+      });
 
-        await tx.emergencyCase.update({
-          where: { id },
-          data: { status: CaseStatus.HANDED_OVER },
+      if (!existingHospital) {
+        // Fallback to first active hospital or case coordination hospital
+        const fallbackHospital = await prisma.organization.findFirst({
+          where: { type: 'HOSPITAL' },
         });
+        if (fallbackHospital) {
+          resolvedHospitalId = fallbackHospital.id;
+        } else {
+          res.status(400).json({ error: 'No receiving hospital facility found in the system.' });
+          return;
+        }
+      }
 
-        return h;
+      const handover = await withDbRetry(async () => {
+        return prisma.$transaction(async (tx) => {
+          // Idempotent upsert so re-submitting or updating handover notes succeeds cleanly
+          const h = await tx.patientHandover.upsert({
+            where: { caseId: id },
+            create: {
+              caseId: id,
+              hospitalId: resolvedHospitalId,
+              receivingDoctorName,
+              receivingNurseName: receivingNurseName || null,
+              vitalsSummary,
+              handoverNotes,
+            },
+            update: {
+              hospitalId: resolvedHospitalId,
+              receivingDoctorName,
+              receivingNurseName: receivingNurseName || null,
+              vitalsSummary,
+              handoverNotes,
+              completedAt: new Date(),
+            },
+          });
+
+          // Update case status to HANDED_OVER
+          await tx.emergencyCase.update({
+            where: { id },
+            data: { status: CaseStatus.HANDED_OVER },
+          });
+
+          // Mark all case allocations as COMPLETED
+          await tx.caseAllocation.updateMany({
+            where: { caseId: id, status: { not: 'COMPLETED' } },
+            data: {
+              status: 'COMPLETED',
+              completedAt: new Date(),
+              handoverAt: new Date(),
+            },
+          });
+
+          // Free up assigned ambulances back to AVAILABLE status
+          const allocations = await tx.caseAllocation.findMany({
+            where: { caseId: id },
+            select: { ambulanceId: true },
+          });
+
+          for (const alloc of allocations) {
+            await tx.ambulance.update({
+              where: { id: alloc.ambulanceId },
+              data: { status: 'AVAILABLE' },
+            });
+          }
+
+          return h;
+        });
       });
 
       await auditService.log({
@@ -474,9 +529,10 @@ export class EmergencyController {
         action: 'PATIENT_HANDOVER_COMPLETED',
         entityType: 'PatientHandover',
         entityId: handover.id,
-        metadata: { caseId: id, hospitalId, doctor: receivingDoctorName },
+        metadata: { caseId: id, hospitalId: resolvedHospitalId, doctor: receivingDoctorName },
       });
 
+      // Broadcast handover completion to case room and global fleet
       socketService.broadcastToCase(id, 'emergency:status_change', {
         caseId: id,
         status: CaseStatus.HANDED_OVER,
@@ -484,7 +540,7 @@ export class EmergencyController {
       });
 
       res.status(201).json({
-        message: 'Patient handover completed and archived successfully',
+        message: 'Patient handover completed and incident closed successfully',
         handover,
       });
     } catch (err) {

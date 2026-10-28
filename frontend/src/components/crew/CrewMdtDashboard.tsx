@@ -26,6 +26,8 @@ export const CrewMdtDashboard: React.FC = () => {
   const { socket } = useSocket();
   const [assignedAmbulance, setAssignedAmbulance] = useState<Ambulance | null>(null);
   const [activeCase, setActiveCase] = useState<EmergencyCase | null>(null);
+  const [hospitals, setHospitals] = useState<any[]>([]);
+  const [selectedHospitalId, setSelectedHospitalId] = useState<string>('');
   const [isHandoverModalOpen, setIsHandoverModalOpen] = useState(false);
   const [doctorName, setDoctorName] = useState('');
   const [nurseName, setNurseName] = useState('');
@@ -49,10 +51,18 @@ export const CrewMdtDashboard: React.FC = () => {
     isTracking,
   } = useGeolocation();
 
-  // Load crew's assigned vehicle and active case
+  // Load crew's assigned vehicle, active case, and hospitals
   const loadCrewData = async () => {
     try {
-      const ambRes = await api.getAmbulances();
+      const [ambRes, casesRes, hospRes] = await Promise.all([
+        api.getAmbulances(),
+        api.getCases(),
+        api.getHospitals().catch(() => ({ hospitals: [] })),
+      ]);
+
+      const availableHospitals = hospRes.hospitals || [];
+      setHospitals(availableHospitals);
+
       // Find ambulance where this crew member has an active shift
       const myVehicle = ambRes.ambulances?.find((a: Ambulance) =>
         a.crewAssignments?.some((s) => s.user.id === user?.id && s.status === 'ACTIVE')
@@ -60,12 +70,20 @@ export const CrewMdtDashboard: React.FC = () => {
 
       if (myVehicle) {
         setAssignedAmbulance(myVehicle);
-        // Find if this vehicle has an active case allocation
-        const casesRes = await api.getCases();
+        // Find if this vehicle has an active case allocation (excluding already handed over or cancelled cases)
         const curCase = casesRes.cases?.find((c: EmergencyCase) =>
+          c.status !== 'HANDED_OVER' &&
+          c.status !== 'CANCELLED' &&
           c.allocations?.some((alloc) => alloc.ambulance.id === myVehicle.id && alloc.status !== 'COMPLETED')
         );
         setActiveCase(curCase || null);
+
+        // Pre-select coordinated hospital or first available hospital
+        if (curCase?.coordinations?.[0]?.hospital?.id) {
+          setSelectedHospitalId(curCase.coordinations[0].hospital.id);
+        } else if (availableHospitals[0]?.id) {
+          setSelectedHospitalId(availableHospitals[0].id);
+        }
       }
     } catch (err) {
       console.error('Failed to load crew MDT data', err);
@@ -118,9 +136,14 @@ export const CrewMdtDashboard: React.FC = () => {
 
     setIsSubmittingHandover(true);
     try {
-      // Find coordinated hospital or fallback to first hospital
-      const hospRes = await api.getHospitals();
-      const hospitalId = activeCase.coordinations?.[0]?.hospital?.id || hospRes.hospitals?.[0]?.id;
+      // Determine receiving hospital ID
+      const hospitalId = selectedHospitalId || activeCase.coordinations?.[0]?.hospital?.id || hospitals[0]?.id;
+
+      if (!hospitalId) {
+        alert('Please select a valid receiving hospital.');
+        setIsSubmittingHandover(false);
+        return;
+      }
 
       await api.submitHandover(activeCase.id, {
         hospitalId,
@@ -130,9 +153,16 @@ export const CrewMdtDashboard: React.FC = () => {
         handoverNotes: handoverNotes.trim(),
       });
 
+      // Clear form inputs and close modal
+      setDoctorName('');
+      setNurseName('');
+      setVitalsSummary('');
+      setHandoverNotes('');
       setIsHandoverModalOpen(false);
       setActiveCase(null);
-      loadCrewData();
+
+      alert('✅ Patient handover signed and archived successfully! Unit is now available.');
+      await loadCrewData();
     } catch (err: any) {
       alert(`Handover submission failed: ${err.message}`);
     } finally {
@@ -336,6 +366,27 @@ export const CrewMdtDashboard: React.FC = () => {
             </p>
 
             <form onSubmit={handleSubmitHandover} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  Receiving Hospital Facility *
+                </label>
+                <select
+                  required
+                  value={selectedHospitalId}
+                  onChange={(e) => setSelectedHospitalId(e.target.value)}
+                  className="w-full bg-navy-950 border border-navy-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500"
+                >
+                  {hospitals.map((h) => (
+                    <option key={h.id} value={h.id}>
+                      {h.name} {h.traumaLevel ? `(${h.traumaLevel})` : ''}
+                    </option>
+                  ))}
+                  {hospitals.length === 0 && (
+                    <option value="">No hospital facilities loaded</option>
+                  )}
+                </select>
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">Receiving Doctor Name *</label>
