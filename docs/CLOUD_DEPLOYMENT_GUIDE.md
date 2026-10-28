@@ -34,40 +34,84 @@ This guide covers deployment to production environments:
 
 ---
 
-## 2. Option A: Managed Cloud Deployment (Render / Railway / Supabase)
+## 2. Option A: Zero-Docker Native Deployment (Render / Railway / Vercel) — RECOMMENDED
 
-### Step 2.1: Provision Managed PostgreSQL
-1. Create a PostgreSQL instance on **AWS RDS**, **Supabase**, or **Neon**.
-2. Note the connection URI:
-   ```
-   postgresql://app_user:StrongPassword@db-host.provider.com:5432/ambulance_prod?sslmode=require
-   ```
-3. Ensure automated daily backups and Point-In-Time Recovery (PITR) are enabled.
+You **do not need Docker** to deploy this application. Cloud platforms like Render, Railway, and Vercel run Node.js natively.
 
-### Step 2.2: Deploy Backend Web Service
-1. Connect your Git repository (`https://github.com/unfav72/Ambulance-Alert.git`) to **Render** or **Railway**.
-2. **Build Configuration**:
-   - **Build Context / Root Directory**: `.` (repository root)
-   - **Dockerfile Path**: `docker/Dockerfile.backend`
-   - *(Note: If you choose Root Directory: `backend`, select `Dockerfile` inside the backend directory)*
-3. Set Environment Variables:
+### Step 2.1: Deploy Backend Web Service (Render / Railway)
+1. In Render or Railway, click **New Web Service** and select your GitHub repository:
+   `https://github.com/unfav72/Ambulance-Alert.git`
+2. Configure settings:
+   - **Environment / Runtime**: `Node` *(NOT Docker)*
+   - **Root Directory**: `backend`
+   - **Build Command**:
+     ```bash
+     npm install && npx prisma generate && npm run build
+     ```
+   - **Start Command**:
+     ```bash
+     npm start
+     ```
+   - **Plan**: Free or Starter
+3. Add **Environment Variables**:
    - `NODE_ENV`: `production`
-   - `PORT`: `5000`
-   - `DATABASE_URL`: `postgresql://app_user:...@db-host:5432/ambulance_prod?sslmode=require&connect_timeout=30`
-   - `JWT_SECRET`: *(Generate 64-character random string via `openssl rand -hex 32`)*
+   - `PORT`: `5000` (or leave default on Render)
+   - `DATABASE_URL`: `postgresql://app_user:...@db-host:5432/ambulance_prod?sslmode=require&connect_timeout=30` (e.g. Neon connection string)
+   - `JWT_SECRET`: *(A random 64-character string)*
    - `JWT_EXPIRES_IN`: `8h`
-   - `CORS_ORIGIN`: `https://ambulance.yourdomain.com`
+   - `CORS_ORIGIN`: `*` *(or your frontend URL e.g. `https://your-frontend.onrender.com`)*
    - `OSRM_ROUTING_URL`: `https://router.project-osrm.org`
    - `ENABLE_RATE_LIMITING`: `true`
-   - `ADMIN_SETUP_TOKEN`: *(Generate secure 32-char token)*
-   - `BREVO_API_KEY`: `xkeysib-...`
+   - `ADMIN_SETUP_TOKEN`: *(A secure token for admin setup)*
+   - `BREVO_API_KEY`: *(Your Brevo API Key)*
    - `BREVO_SENDER_EMAIL`: `vanakkam727@gmail.com`
-   - `BREVO_SENDER_NAME`: `"AmbulanceOps Emergency Dispatch"`
+   - `BREVO_SENDER_NAME`: `AmbulanceOps Emergency Dispatch`
 
-### Step 2.3: Deploy Frontend PWA Static Service
-1. Create a Web Service using `docker/Dockerfile.frontend` with Root Directory: `.`
-2. Configure custom domain with automatic SSL (e.g., `https://ambulance.yourdomain.com`).
-3. Set proxy rule: forward `/api/` and `/socket.io/` to your deployed backend URL.
+4. Click **Deploy**. Render will install dependencies, generate the Prisma client, build TypeScript, and launch the server.
+
+---
+
+### Step 2.2: Deploy Frontend (Vercel or Render Static Site)
+
+#### Method 1: Deploy on Render Static Site
+1. In Render, click **New Static Site** and select `https://github.com/unfav72/Ambulance-Alert.git`.
+2. Configure settings:
+   - **Root Directory**: `frontend`
+   - **Build Command**: `npm install && npm run build`
+   - **Publish Directory**: `dist`
+3. Environment Variables:
+   - `VITE_API_URL`: `https://your-backend-service.onrender.com`
+4. Add Rewrite Rule (under "Redirects/Rewrites"):
+   - Source: `/*`
+   - Destination: `/index.html`
+   - Action: `Rewrite`
+
+#### Method 2: Deploy on Vercel
+1. Import GitHub repository `https://github.com/unfav72/Ambulance-Alert.git`.
+2. Set **Root Directory** to `frontend`.
+3. Framework Preset: `Vite`.
+4. Environment Variables:
+   - `VITE_API_URL`: `https://your-backend-service.onrender.com`
+5. Click **Deploy**.
+
+---
+
+### Step 2.3: Execute Database Sync & Bootstrap Admin (One-Time)
+From your local terminal or via Render Shell:
+```bash
+# Push schema directly to your live database
+npm --prefix backend run prisma:generate
+npx prisma db push --schema=backend/prisma/schema.prisma
+
+# Bootstrap administrator
+npm --prefix backend run seed:admin
+```
+
+---
+
+## 3. Option B: Docker Container Deployment (Render / Railway / VPS)
+
+*(Use this ONLY if you prefer building container images)*
 
 ### Step 2.4: Execute Production Migrations & Bootstrap Administrator
 Open SSH or terminal console in the backend container:
